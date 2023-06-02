@@ -1,0 +1,555 @@
+<html>
+	<head>
+		<title>ASCII Maker</title>
+		<style>
+			.cell{width:8px;height:16px;cursor:default;font-size:10pt;font-weight:700;font-family:Courier New}
+			.noDrag{-moz-user-select:none}
+			#canvas,#picker{margin:auto}
+			#drafts{position:absolute;top:5px;left:5px;font-family:Verdana;font-size:8pt}
+			#textBuffer{position:absolute;width:1px;height:1px}
+		</style>
+		<script type="text/javascript">
+			var halt = unescape('%0F');
+			var code = unescape('%03');
+			var brushColour = 4;
+			var mode = 0, isDragging = 0, canvasWidth = 0, canvasHeight = 0, selected = 0, curKey = 0, tool = 0;
+			var palette = new Array('FFFFFF', '000000', '00007F', '009300', 'FF0000', '7F0000', '9C009C', 'FC7F00', 'FFFF00', '00FC00', '009393', '00FFFF', '0000FC', 'FF00FF', '7F7F7F', 'D2D2D2');
+			var drafts = new Array();
+			var undo = new Array();
+
+			function generateCanvas(width, height) {
+				canvasWidth = width;
+				canvasHeight = height;
+				document.getElementById('canvas').innerHTML = '';
+				var tableGrid = document.createElement("table");
+				tableGrid.setAttribute('cellpadding', '0');
+				tableGrid.setAttribute('cellspacing', '0');
+				tableGrid.setAttribute('onmousedown', 'toggleDragging(1);');
+				tableGrid.setAttribute('onmouseup', 'toggleDragging(0);');
+				tableGrid.setAttribute('background', 'data/checkered.png');
+				for (var y = 0; y < height; y++) {
+					var currentLine = document.createElement("tr");
+					for (var x = 0; x < width; x++) {
+						var currentCell = document.createElement("td");
+						currentCell.setAttribute('class', 'cell');
+						currentCell.innerHTML = ' ';
+						currentCell.setAttribute('onmousemove', 'fillCell(' + (width * y + x) + ');');
+						currentCell.setAttribute('onmousedown', 'isDragging=1;fillCell(' + (width * y + x) + ');');
+						currentLine.appendChild(currentCell);
+					}
+					tableGrid.appendChild(currentLine);
+				}
+				document.getElementById('canvas').style.width = x * 8 + 'px';
+				document.getElementById('canvas').appendChild(tableGrid);
+			}
+
+			function generatePalette() {
+				var paletteGrid = document.createElement("table");
+				paletteGrid.setAttribute('cellspacing', '2');
+				var paletteLine = document.createElement("tr");
+				for (i = 0; i < 16; i++) {
+					var currentPalette = document.createElement('td');
+					currentPalette.setAttribute('style', 'width: 20px; height: 20px; background-color: #' + palette[i] + ';');
+					currentPalette.setAttribute('onclick', 'setColour(' + i + ');');
+					paletteLine.appendChild(currentPalette);
+				}
+				paletteGrid.appendChild(paletteLine);
+				document.getElementById('picker').style.width = '360px';
+				document.getElementById('picker').appendChild(paletteGrid);
+			}
+
+			function setColour(i) {
+				brushColour = i;
+			}
+
+			function fillCell(index) {
+				if (tool == 0) {
+					if (isDragging == 1 && mode == 0) {
+						if (curKey != 17 && curKey != 18) setBackgroundColour(index);
+						else remBackgroundColour(index);
+					} else if (isDragging == 1 && mode == 1) {
+						if (curKey == 17 || curKey == 18) {
+							setLetter(index, '');
+							remColour(index);
+						}
+						document.getElementById('textBuffer').focus();
+						remCursor(selected);
+						selected = index;
+						setCursor(selected);
+						if (document.getElementsByTagName('td')[selected].innerHTML != ' ' && document.getElementsByTagName('td')[selected].innerHTML != '') document.getElementsByTagName('td')[selected].style.color = palette[brushColour];
+					}
+				} else {
+					fillArea(index);
+				}
+			}
+
+			function fillArea(index) {
+				var newSeeds = new Array();
+				var x = index % canvasWidth;
+				var y = (index - x) / canvasWidth;
+				var c = getCellColour(x, y);
+				var x1 = getLineColourLimits(x, y, 'left');
+				var x2 = getLineColourLimits(x, y, 'right');
+				if (isDragging == 1) {
+					for (var m = 0; m < 2; m++) {
+						y = (index - x) / canvasWidth + m;
+						while (y >= 0 && y <= canvasHeight) {
+							if (getCellColour(x, y) != c) break;
+							var x1 = getLineColourLimits(x, y, 'left');
+							var x2 = getLineColourLimits(x, y, 'right');
+							for (var i = x1; i <= x2; i++)
+								if (curKey != 17 && curKey != 18) setBackgroundColour((canvasWidth * y) + i);
+								else remBackgroundColour((canvasWidth * y) + i);
+							if (m == 0) y--;
+							else y++;
+						}
+					}
+				}
+			}
+
+			function getLineColourLimits(x, y, end) {
+				var boundary = x;
+				var currentColour;
+				var targetColour = getCellColour(x, y);
+				var i = x;
+				while (i >= 0 && i < canvasWidth) {
+					currentColour = getCellColour(i, y);
+					if (currentColour == targetColour) boundary = i;
+					else break;
+					if (end == 'left') i--;
+					else i++;
+				}
+				return boundary;
+			}
+
+			function toggleMode(newMode) {
+				if (newMode != undefined) mode = newMode;
+				if (mode == 1) {
+					remCursor(selected);
+					document.getElementById('typeButton').innerHTML = 'Type';
+				} else {
+					toggleTool(1);
+					setCursor(selected);
+					document.getElementById('textBuffer').focus();
+					document.getElementById('typeButton').innerHTML = 'Draw';
+				}
+				mode = (mode - 1) * -1
+			}
+
+			function toggleTool(newTool) {
+				toggleMode(1);
+				if (newTool != undefined) tool = newTool;
+				if (tool == 1) document.getElementById('toolButton').innerHTML = 'Fill';
+				else document.getElementById('toolButton').innerHTML = 'Brush';
+				tool = (tool - 1) * -1
+			}
+
+			function toggleDragging(bool) {
+				isDragging = bool;
+			}
+
+			function padColour(colourCode, letter) {
+				if (colourCode < 10 && isNaN(parseFloat(letter)) == false) {
+					return '0' + colourCode;
+				}
+				return colourCode;
+			}
+
+			function renderArt() {
+				var line, output = ''
+				var lastColour, lastFontColour, currentColour, currentFontColour, breakout;
+				for (var y = 0; y < canvasHeight; y++) {
+					line = '';
+					for (var x = 0; x < canvasWidth; x++) {
+						lastColour = getCellColour(x, y);
+						lastFontColour = getFontColour(x, y);
+						if (lastFontColour >= 0 && lastColour >= 0) {
+							line += code + lastFontColour + ',' + padColour(lastColour, getCellLetter(x, y));
+						} else if (lastFontColour >= 0 && lastColour < 0) {
+							if (x != 0) line += halt;
+							line += code + padColour(lastFontColour, getCellLetter(x, y));
+						} else if (lastFontColour < 0 && lastColour >= 0) {
+							line += code + lastColour + ',' + padColour(lastColour, getCellLetter(x, y));
+						} else {
+							line += getCellLetter(x, y);
+						}
+						if (lastFontColour >= 0 || lastColour >= 0) {
+							breakout = 0;
+							for (var z = x; z < canvasWidth; z++) {
+								currentColour = getCellColour(z, y);
+								currentFontColour = getFontColour(z, y);
+								if (currentFontColour == lastFontColour && currentColour == lastColour) {
+									line += getCellLetter(z, y);
+								} else {
+									x = z - 1;
+									breakout = 1;
+									break;
+								}
+							}
+							line += code;
+							if (breakout == 0) x = canvasWidth;
+						}
+					}
+					output += endtrim(line, ' ') + " \n";
+				}
+				var remove = new RegExp(code + code, 'gi');
+				output = output.replace(remove, code);
+				output = output.replace(/&lt;/g, '<');
+				output = output.replace(/&gt;/g, '>');
+				document.getElementById('load').value = endtrim(output);
+			}
+
+			function previewArt() {
+				renderArt();
+				document.getElementById('preview').innerHTML = '';
+				var tempForm = document.createElement('form');
+				tempForm.setAttribute('method', 'POST');
+				tempForm.setAttribute('action', '/preview/preview.php');
+				tempForm.setAttribute('target', '_blank');
+				var tempField = document.createElement('input');
+				tempField.setAttribute('name', 'ascii');
+				tempField.setAttribute('type', 'hidden');
+				tempField.value = escape(document.getElementById('load').value);
+				var rawField = document.createElement('input');
+				rawField.setAttribute('name', 'raw');
+				rawField.setAttribute('type', 'hidden');
+				rawField.value = 1;
+				tempForm.appendChild(tempField);
+				tempForm.appendChild(rawField);
+				document.getElementById('preview').appendChild(tempForm);
+				document.forms[0].submit();
+			}
+
+			function resizeArt() {
+				var x = parseFloat(prompt('wqat width? (in characters)', canvasWidth));
+				var y = parseFloat(prompt('wqat height? (in characters)', canvasHeight));
+				renderArt();
+				generateCanvas(x, y);
+				drawImage();
+			}
+
+			function loadArt() {
+				var dimensions = getAsciiWidth();
+				generateCanvas(dimensions[0], dimensions[1]);
+				drawImage();
+			}
+
+			function drawImage() {
+				var g_width = 0;
+				var lines = endtrim(document.getElementById('load').value, "\n");
+				lines = lines.split("\n");
+				for (var y in lines) {
+					var index = y * canvasWidth;
+					var last_foreground = 16;
+					var last_background = 16;
+					var blocks = lines[y].split(code);
+					for (var b in blocks) {
+						if (blocks[b].length > 0) {
+							var colours = getColoursFromLine(blocks[b], blocks.length, last_foreground, last_background);
+							last_background = colours[1];
+							for (var i = 0; i < colours[3].length; i++) {
+								if (colours[3].charCodeAt(i) == 15) {
+									last_background = 16;
+								} else if (colours[3].charCodeAt(i) > 31 && colours[3].charCodeAt(i) < 127) {
+									document.getElementsByTagName('td')[index].style.color = palette[parseFloat(colours[0])];
+									if (colours[1] < 16) document.getElementsByTagName('td')[index].style.backgroundColor = palette[parseFloat(colours[1])];
+									document.getElementsByTagName('td')[index].innerHTML = colours[3].charAt(i);
+									index++;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			function endtrim(str, chars) {
+				chars = chars || "\\s";
+				return str.replace(new RegExp("[" + chars + "]+$", "g"), "");
+			}
+
+			function getColoursFromLine(line, block_count, last_foreground, last_background) {
+				var colours = new Array();
+				if (block_count > 1) {
+					var chunks = line.split(',', 2);
+					for (var c in chunks) {
+						var current = '';
+						for (var i = 0; i < 2; i++) {
+							if (isNaN(parseFloat(chunks[c].charAt(i))) == false) current += chunks[c].charAt(i);
+						}
+						if (isNaN(parseFloat(current)) == false) colours[colours.length] = current;
+					}
+				}
+				colours[3] = line.substr(colours.join(',').length);
+				if (typeof(colours[0]) != 'undefined' && typeof(colours[1]) == 'undefined') colours[1] = last_background;
+				if (typeof(colours[0]) == 'undefined') colours[0] = last_foreground;
+				return colours;
+			}
+
+			function getAsciiWidth() {
+				var g_width = 0;
+				var lines = endtrim(document.getElementById('load').value, "\n");
+				lines = lines.split("\n");
+				for (var y in lines) {
+					var l_width = 0;
+					var blocks = lines[y].split(code);
+					for (var b in blocks) {
+						if (blocks[b].length > 0) {
+							var colours = getColoursFromLine(blocks[b], blocks.length);
+							for (var i = 0; i < colours[3].length; i++) {
+								if (colours[3].charCodeAt(i) > 31 && colours[3].charCodeAt(i) < 127) l_width++;
+							}
+						}
+					}
+					if (l_width > g_width) g_width = l_width;
+				}
+				return new Array(g_width, lines.length);
+			}
+
+			function getCellColour(x, y) {
+				var colour = document.getElementsByTagName('td')[(canvasWidth * y + x)].style.backgroundColor;
+				return ircFromHex(rgbConvert(colour));
+			}
+
+			function getFontColour(x, y) {
+				var colour = document.getElementsByTagName('td')[(canvasWidth * y + x)].style.color;
+				return ircFromHex(rgbConvert(colour));
+			}
+
+			function getCellLetter(x, y) {
+				var letter = document.getElementsByTagName('td')[(canvasWidth * y + x)].innerHTML;
+				if (letter == '') letter = ' ';
+				return letter;
+			}
+
+			function rgbConvert(str) {
+				if (navigator.userAgent.match('Opera') == null) {
+					str = str.replace(/rgb\(|\)/g, "").split(",");
+					str[0] = parseInt(str[0], 10).toString(16).toUpperCase();
+					str[1] = parseInt(str[1], 10).toString(16).toUpperCase();
+					str[2] = parseInt(str[2], 10).toString(16).toUpperCase();
+					str[0] = (str[0].length == 1) ? '0' + str[0] : str[0];
+					str[1] = (str[1].length == 1) ? '0' + str[1] : str[1];
+					str[2] = (str[2].length == 1) ? '0' + str[2] : str[2];
+					return str.join("");
+				} else {
+					return str.replace(/#/g, '').toUpperCase();
+				}
+			}
+
+			function ircFromHex(hex) {
+				for (var i = 0; i < 16; i++) {
+					if (palette[i] == hex) return i;
+				}
+				return -1;
+			}
+			document.onmousemove = function moveBuffer(e) {
+				var y = e.clientY + document.body.scrollTop + 5;
+				if (y < (window.innerHeight + window.scrollMaxY - 30)) {
+					document.getElementById('textBuffer').style.left = '0px';
+					document.getElementById('textBuffer').style.top = y + 'px';
+				}
+			}
+			document.onkeydown = function setKey(e) {
+				var code;
+				if (window.event) code = window.event.keyCode;
+				else if (e) code = e.which;
+				curKey = code;
+				if (mode == 0) {
+					if (code == 38) // up
+						shiftArt('up');
+					else if (code == 40) // down
+						shiftArt('down');
+					else if (code == 37) // left
+						shiftArt('left');
+					else if (code == 39) // right
+						shiftArt('right');
+				}
+				if (curKey == 27) loadLastUndo();
+			}
+			document.onkeyup = function handleKey(e) {
+				var code;
+				if (window.event) code = window.event.keyCode;
+				else if (e) code = e.which;
+				curKey = 0;
+				if (mode == 1) {
+					if (code == 8) {
+						remCursor(selected);
+						selected--;
+						setCursor(selected);
+						setLetter(selected, '');
+						remColour(selected);
+					} else if (code == 38 && (selected - canvasWidth) >= 0) // up
+						moveCursor(selected - canvasWidth);
+					else if (code == 40 && (selected + canvasWidth) < canvasWidth * canvasHeight) // down
+						moveCursor(selected + canvasWidth);
+					else if (code == 37 && (selected - 1) >= 0) // left
+						moveCursor(selected - 1);
+					else if (code == 39 && (selected + 1) < canvasWidth * canvasHeight) // right
+						moveCursor(selected + 1);
+					else {
+						var data = document.getElementById('textBuffer').value;
+						for (var i = 0; i < data.length; i++) {
+							remCursor(selected);
+							setCursor(selected + 1);
+							setLetter(selected, data.charAt(i));
+							selected++;
+						}
+						document.getElementById('textBuffer').value = '';
+					}
+				}
+			}
+
+			function setCursor(index) {
+				document.getElementsByTagName('td')[index].style.backgroundImage = 'url(cursor.png)';
+			}
+
+			function remCursor(index) {
+				document.getElementsByTagName('td')[index].style.backgroundImage = '';
+			}
+
+			function moveCursor(index) {
+				remCursor(selected);
+				selected = index;
+				setCursor(selected);
+			}
+
+			function setLetter(index, data) {
+				document.getElementsByTagName('td')[index].style.color = palette[brushColour];
+				document.getElementsByTagName('td')[index].innerHTML = data;
+			}
+
+			function remColour(index) {
+				document.getElementsByTagName('td')[index].style.color = '';
+			}
+
+			function setBackgroundColour(index) {
+				if (rgbConvert(document.getElementsByTagName('td')[index].style.backgroundColor) != palette[brushColour]) {
+					saveStateUndo(index);
+					document.getElementsByTagName('td')[index].style.backgroundColor = palette[brushColour];
+				}
+			}
+
+			function remBackgroundColour(index) {
+				if (document.getElementsByTagName('td')[index].style.backgroundColor != '') {
+					saveStateUndo(index);
+					document.getElementsByTagName('td')[index].style.backgroundColor = '';
+				}
+			}
+
+			function saveStateUndo(index) {
+				if (undo.length > 50000) undo.splice(0, 1);
+				var i = undo.length;
+				undo[i] = new Array();
+				undo[i][0] = index;
+				undo[i][1] = document.getElementsByTagName('td')[index].style.color;
+				undo[i][2] = document.getElementsByTagName('td')[index].style.backgroundColor;
+				undo[i][3] = document.getElementsByTagName('td')[index].innerHTML;
+				document.getElementById('undoButton').disabled = 0;
+			}
+
+			function loadLastUndo() {
+				if (undo.length > 0) {
+					var currentUndo = undo[undo.length - 1];
+					document.getElementsByTagName('td')[currentUndo[0]].style.color = currentUndo[1];
+					document.getElementsByTagName('td')[currentUndo[0]].style.backgroundColor = currentUndo[2];
+					document.getElementsByTagName('td')[currentUndo[0]].innerHTML = currentUndo[3];
+					undo.splice(undo.length - 1, 1);
+					if (undo.length <= 0) document.getElementById('undoButton').disabled = 1;
+				} else {
+					document.getElementById('undoButton').disabled = 1;
+				}
+			}
+
+			function addDraft() {
+				var d = new Date();
+				var i = drafts.length;
+				renderArt();
+				drafts[i] = new Array();
+				drafts[i][0] = document.getElementById('load').value;
+				drafts[i][1] = d.toUTCString();
+				drawDrafts();
+			}
+
+			function drawDrafts() {
+				document.getElementById('drafts').innerHTML = '';
+				for (var i in drafts) document.getElementById('drafts').innerHTML += '#' + i + ' <a style=\'cursor: pointer;\' onclick=\'loadDraft(' + i + ');\'>' + drafts[i][1] + "</a><br />\n";
+			}
+
+			function loadDraft(index) {
+				document.getElementById('load').value = drafts[index][0];
+				loadArt();
+			}
+
+			function copyArt() {
+				copy(document.getElementById('load'));
+			}
+
+			function shiftArt(direction) {
+				var newLoc;
+				if (direction == 'down' || direction == 'right') var i = (canvasWidth * canvasHeight) - 1;
+				else var i = 0;
+				while (i >= 0 && i < (canvasWidth * canvasHeight)) {
+					if (direction == 'up' || direction == 'down') newLoc = i - canvasWidth;
+					else if (direction == 'left' || (direction == 'right')) newLoc = i - 1;
+					var newCell = document.getElementsByTagName('td')[newLoc];
+					var oldCell = document.getElementsByTagName('td')[i];
+					if (newLoc >= 0 && newLoc < (canvasWidth * canvasHeight)) {
+						if (direction == 'up' || direction == 'left') {
+							newCell.style.color = oldCell.style.color;
+							newCell.style.backgroundColor = oldCell.style.backgroundColor;
+							newCell.innerHTML = oldCell.innerHTML;
+						} else if (direction == 'down' || direction == 'right') {
+							oldCell.style.color = newCell.style.color;
+							oldCell.style.backgroundColor = newCell.style.backgroundColor;
+							oldCell.innerHTML = newCell.innerHTML;
+						}
+					}
+					if (direction == 'up' || direction == 'left') i++;
+					else if (direction == 'down' || direction == 'right') i--;
+				}
+			}
+
+			function copy(inElement) {
+				if (inElement.createTextRange) {
+					var range = inElement.createTextRange();
+					if (range && BodyLoaded == 1) range.execCommand('Copy');
+				} else {
+					var flashcopier = 'flashcopier';
+					if (!document.getElementById(flashcopier)) {
+						var divholder = document.createElement('div');
+						divholder.id = flashcopier;
+						document.body.appendChild(divholder);
+					}
+					document.getElementById(flashcopier).innerHTML = '';
+					var divinfo = '<embed src="data/clipboard.swf" FlashVars="clipboard=' + escape(inElement.value) + '" width="0" height="0" type="application/x-shockwave-flash"></embed>';
+					document.getElementById(flashcopier).innerHTML = divinfo;
+				}
+			}
+		</script>
+	</head>
+	<body onload='generateCanvas(80,24); generatePalette();' onkeydown='if(mode == 1) document.getElementById("textBuffer").focus();'>
+		<center>
+			<b>ASCII Maker</b>
+			<br><small><i>(<a href="https://github.com/ircart/asciimaker">source</a>)</i></small>
+			<br><br>
+		</center>
+		<div class='noDrag' id='canvas'></div>
+		<div class='noDrag' id='picker'></div>
+		<div id='preview'></div>
+		<div class='drafts' id='drafts'></div>
+		<p align='center'>
+			<button onclick='addDraft();'>Save</button>
+			<button onclick='loadArt();'>Load</button>
+			<button onclick='generateCanvas(canvasWidth, canvasHeight);'>Clear</button>
+			<button onclick='renderArt();'>Render</button>
+			<button onclick='copyArt();'>Copy</button>
+			<button onclick='toggleMode();' id='typeButton'>Type</button>	
+			<button onclick='toggleTool();' id='toolButton'>Fill</button>
+			<button onclick='resizeArt();'>Resize</button>
+			<button onclick='loadLastUndo();' id='undoButton' DISABLED>Undo</button>
+			<br>
+			<textarea id='load' cols='30' rows='3' readonly></textarea><br />
+			<input type='text' id='textBuffer' onkeydown='if(mode != 1) return false;' style='opacity: 0;'><br />
+		</p>
+	</body>
+</html>
